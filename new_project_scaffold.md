@@ -1,0 +1,395 @@
+# New Project Scaffold — Claude Code Starter Prompt
+
+> **How to use:** Paste everything below the horizontal rule into Claude Code at the start of any new project. Fill in the `[PROJECT NAME]` and `[DESCRIPTION]` placeholders when prompted, or just paste as-is and answer Claude's follow-up questions.
+>
+> **Companion doc:** Once the project is set up, see `DAILY_PLAYBOOK.md` for guidance on day-to-day use of the commands and agents.
+
+---
+
+## PROMPT — PASTE THIS INTO CLAUDE CODE
+
+Please scaffold this project with the full standard structure I use for every project. This means three things:
+
+1. A `/docs` folder with 11 template documents
+2. A `.claude/agents/` folder with 7 specialist agents
+3. A `.claude/commands/` folder with 11 slash commands
+
+Do all of this now, then ask me to describe the project so we can populate the PRD and architecture docs together.
+
+---
+
+### PART 1 — Create `/docs` with these 11 files
+
+For each file, create a sensible template with section headers and placeholder comments. Do not leave any file empty.
+
+**`/docs/README.md`**
+Sections: Project Overview, Quick Start, Repo Structure, Key Contacts, Links
+
+**`/docs/PRD.md`**
+Sections: Problem Statement, Goals & Non-Goals, User Personas, Feature List (with priority: P0/P1/P2), User Stories, Out of Scope, Open Questions
+
+**`/docs/IMPLEMENTATION_PLAN.md`**
+Sections: Phase overview table, then one section per phase with: Goals, Tasks (checkbox list), Dependencies, Success Criteria, Estimated Timeline. Then a **Backlog** section at the bottom — a table with columns: ID, Idea, Source, Bucket (Tiny tweak / Feature / Architectural), Notes, Captured. New ideas captured via `/add-idea` are appended here. Completed backlog items move to a "Completed" sub-section or get deleted during periodic backlog hygiene.
+
+**`/docs/TECH_ARCHITECTURE.md`**
+Sections: System Diagram (text/ASCII), Tech Stack, Component Structure, Data Flow, Key Architectural Decisions, Security & Compliance Considerations, Known Constraints
+
+**`/docs/INFRASTRUCTURE.md`**
+Sections: Local Dev Setup (step by step), Environment Variables, Services & Ports, Production Environment, Deployment Process, Backup & Recovery, Branch Model (`main` = production, `staging` = dev environment, feature branches merge to `staging`)
+
+**`/docs/QA_GOLDEN_PATHS.md`**
+Defines the critical user journeys this project must protect — the workflows that, if broken, mean the product is broken regardless of what passing tests say. Each golden path is numbered (GP-1, GP-2, ...) and gets its own section with: Path Name, User Role, Trigger, Step-by-Step Flow, Success Criteria, Common Failure Modes, HIPAA / Compliance Considerations (if applicable). The `/qa` command tests features against these golden paths and produces manual test plans. For simple projects this might be one or two paths; for clinical / regulated software it might be a dozen. Note: this doc is optional for very simple projects — `/qa` and `qa` agent can be skipped if golden paths aren't formalized.
+
+**`/docs/SESSION_TRANSITION.md`**
+Sections: Last Session Summary, Completed This Session, Currently In Progress, Blocked / Needs Decision, Next Recommended Actions, Open Questions for Next Session
+Note: This file is overwritten at the end of every session by the doc-writer agent. The `/session-end` command also appends any unusual git drift findings (e.g., `main` ahead of `staging`) to "Next Recommended Actions" so they surface in the next `/session-start` briefing.
+
+**`/docs/LESSONS_LEARNED.md`**
+Sections: How to use this file, then a template entry with: Date, Discovery, Why It Matters, How to Apply
+Note: This file grows by appending — never overwrite existing entries.
+
+**`/docs/DECISION_LOG.md`**
+Sections: How to use this file, then a template entry with: Date, Decision, Alternatives Considered, Rationale, Owner
+Note: Append only — never overwrite existing entries. Deploys, rollbacks, and P0 overrides are auto-logged here by the `/deploy` and `/rollback` commands.
+
+**`/docs/KNOWN_ISSUES.md`**
+Sections: Active Issues table (ID, Title, Severity, Status, Owner, Notes), Resolved Issues table
+Severity levels: P0 Critical / P1 High / P2 Medium / P3 Low
+Note: The `/deploy` command reads this file and blocks production deploys when active P0s are present (override requires a typed reason that gets logged to `DECISION_LOG.md`). The `/rollback` command auto-appends a P0 entry capturing whatever caused the rollback.
+
+**`/docs/DOCS_INDEX.md`**
+A table listing all 11 docs with: Filename, Purpose, Who Updates It, Update Frequency
+
+---
+
+### PART 2 — Create `.claude/agents/` with these 7 agent files
+
+Each file must have valid YAML frontmatter (`name`, `description`, `tools`) followed by a detailed system prompt. The agents should reference the `/docs` folder for context.
+
+**`.claude/agents/architect.md`**
+
+- tools: `read_file`
+- Role: Evaluates proposed features and structural changes against `/docs/TECH_ARCHITECTURE.md`, `/docs/PRD.md`, and `/docs/DECISION_LOG.md`
+- Always reads those three docs before evaluating
+- Returns: `GO`, `NOGO`, or `NEEDS MORE INFO` with reasoning, risks, and suggested approach
+- Flags any security, compliance, or dependency conflicts explicitly
+
+**`.claude/agents/developer.md`**
+
+- tools: `read_file`, `write_file`, `execute_bash`
+- Role: Implements features following established patterns in the codebase
+- Always reads the relevant existing code and `/docs/TECH_ARCHITECTURE.md` before writing
+- Summarizes what changed and why after each implementation
+- Flags any security or compliance surface area that was modified
+
+**`.claude/agents/reviewer.md`**
+
+- tools: `read_file` ONLY — never writes or modifies files
+- Role: Audits code and returns a prioritized issue list
+- Severity: P0 Critical (security/data loss), P1 High (broken logic), P2 Medium (pattern violations), P3 Low (style)
+- Ends every review with: `READY TO COMMIT` or `FIX REQUIRED (N blocking issues)`
+
+**`.claude/agents/explorer.md`**
+
+- tools: `read_file`, `execute_bash`
+- Role: Scans the codebase and docs cheaply to answer orientation questions — never writes
+- Session start: reads `SESSION_TRANSITION.md`, `KNOWN_ISSUES.md`, and `IMPLEMENTATION_PLAN.md` (including the Backlog section) and returns a concise briefing (under 20 lines)
+- Briefing covers: completed last session, in progress, blocked, recommended next action — and surfaces any **recently captured or high-priority backlog items** worth considering for this session (does not list the full backlog)
+- Output style: bullets, concise, no unnecessary explanation
+
+**`.claude/agents/doc-writer.md`**
+
+- tools: `read_file`, `write_file`
+- Role: Maintains the `/docs` folder
+  - Updates `SESSION_TRANSITION.md` after every session
+  - Appends to `LESSONS_LEARNED.md` and `DECISION_LOG.md`
+  - Updates `KNOWN_ISSUES.md`
+  - Manages the **Backlog** table in `IMPLEMENTATION_PLAN.md` (appending new entries from `/add-idea`, marking items completed)
+- Rule: Never deletes existing content — always appends or updates in place
+- `DECISION_LOG.md` entries require: date, decision, alternatives considered, rationale
+- `LESSONS_LEARNED.md` entries require: what was discovered, why it matters, how to apply it
+- Backlog entries require: unique ID (B-NNN), one-line description, source, bucket, notes, captured date
+
+**`.claude/agents/database.md`**
+
+- tools: `read_file`, `write_file`, `execute_bash`
+- Role: Handles all database schema, migration, and query work
+- Always reads existing migration files before proposing changes
+- Never DROP columns — use nullable ALTER or new tables
+- All PHI/sensitive fields must be noted in comments
+- Proposes migrations as versioned SQL files (e.g., `003_add_auth_fields.sql`)
+- Always includes rollback SQL with every migration
+
+**`.claude/agents/qa.md`**
+
+- tools: `read_file` ONLY — never writes or modifies files
+- Role: Produces manual test plans for features against the project's golden paths
+- Always reads `/docs/QA_GOLDEN_PATHS.md` before evaluating
+- For a specific feature: identifies which golden paths the feature touches, produces a step-by-step test plan covering happy path → edge cases → regression risks → compliance checks (HIPAA / PHI where applicable), flags untested or fragile scenarios
+- For a full review: assesses coverage across all golden paths and identifies the highest-risk untested scenarios
+- Returns a verdict: `PASS`, `NEEDS ATTENTION`, or `BLOCKED`
+- Note: This agent produces test plans only — it does not execute tests. The human runs the manual tests.
+
+---
+
+### PART 3 — Create `.claude/commands/` with these 11 command files
+
+The command set is organized in three groups: **session management** (`session-start`, `session-end`, `ask-architect`, `add-idea`), **build** (`implement`, `qa`, `pre-commit`), and **ship** (`commit`, `deploy`, `rollback`, `check-drift`).
+
+**Branch model assumed throughout:** `main` = production (auto-deploys to `portal.<your-domain>` via Vercel), `staging` = dev environment (auto-deploys to `dev.<your-domain>` via Vercel). Feature branches merge into `staging`. The commands rely on Vercel's git integration — they push to git and let Vercel handle the deploy. No Vercel CLI or API tokens required.
+
+#### Session management commands
+
+**`.claude/commands/session-start.md`**
+Instructs the `explorer` agent to read `SESSION_TRANSITION.md`, `KNOWN_ISSUES.md`, and `IMPLEMENTATION_PLAN.md`, then return a briefing covering: what was completed last session, what's in progress, what's blocked, the recommended next action, and any recently captured or high-priority backlog items worth surfacing. Briefing stays under 20 lines.
+
+**`.claude/commands/session-end.md`**
+Runs:
+
+1. `reviewer` — quick scan of anything modified this session
+2. `doc-writer` — update `SESSION_TRANSITION.md` with what was completed and what's next
+3. `doc-writer` — append new discoveries to `LESSONS_LEARNED.md`
+4. `doc-writer` — log any architectural decisions to `DECISION_LOG.md`
+5. `doc-writer` — mark completed tasks in `IMPLEMENTATION_PLAN.md`
+6. **Light git drift check:** Run `git log main..staging --oneline` and `git log staging..main --oneline`. If `main` is ahead of `staging` (i.e., `staging..main` is non-empty), this is unusual — append a note to `SESSION_TRANSITION.md` under "Next Recommended Actions" recommending a back-merge of `main` into `staging` before the next `/deploy`. Routine drift (staging ahead of main with WIP) gets a one-line mention in "What's Next" and is not flagged as an action.
+
+Returns a one-paragraph session summary ready to use as a commit message. Stays advisory — does not auto-commit. This preserves the option to end a session with uncommitted WIP.
+
+**`.claude/commands/ask-architect.md`**
+Accepts `$ARGUMENTS` as a design question or proposal.
+Passes it directly to the `architect` agent along with the relevant context from `/docs`.
+Use for quick architecture questions without running a full `/implement` workflow.
+Returns: `GO`, `NOGO`, or `NEEDS MORE INFO` with reasoning. Does not invoke developer, reviewer, or doc-writer — purely advisory.
+
+**`.claude/commands/add-idea.md`**
+Accepts `$ARGUMENTS` as a one-line idea description.
+Workflow:
+
+1. If `$ARGUMENTS` is empty, prompt the user for a description.
+2. Prompt for source (e.g., "stakeholder call 4/22", "own idea", "team feedback") — defaults to `unspecified` if skipped.
+3. Prompt for bucket: `Tiny tweak` (under 30 min, no architectural impact) / `Feature` (default — an hour+ or touches multiple files) / `Architectural` (changes how the system works, needs `/ask-architect` before scheduling).
+4. Prompt for optional notes (blockers, context, related items).
+5. `doc-writer` agent reads `IMPLEMENTATION_PLAN.md`, finds the highest existing `B-NNN` ID in the Backlog table, increments by 1, and appends the new entry with today's date.
+6. If the Backlog section doesn't exist yet, create it.
+
+Returns confirmation with the new ID. Bucket-specific reminders: Architectural ideas should run through `/ask-architect` before scheduling; Tiny tweaks are good batch material.
+
+This command does **not** evaluate the idea, schedule it, or write to `DECISION_LOG.md` or `SESSION_TRANSITION.md`. Pure capture.
+
+#### Build commands
+
+**`.claude/commands/implement.md`**
+Accepts `$ARGUMENTS` as the feature/task to implement.
+Workflow in order:
+
+1. `explorer` — find relevant existing code
+2. `architect` — validate approach (must return GO to proceed)
+3. `database` — review schema changes if applicable
+4. `developer` — implement
+5. `reviewer` — audit (P0/P1 must be resolved before continuing)
+6. `qa` — produce a manual test plan against golden paths
+7. `doc-writer` — update `SESSION_TRANSITION.md` and any relevant docs
+
+After `/implement` completes, the developer is expected to test locally (e.g., `npm run dev` on `localhost`) before running `/commit`.
+
+**`.claude/commands/qa.md`**
+Accepts `$ARGUMENTS` as a feature name or description (optional).
+Workflow:
+
+1. `explorer` — identify all files involved in the feature being tested
+2. `qa` — produce a test plan against the project's golden paths
+
+If a feature is named: identifies which golden paths (GP-1 through GP-N) the feature touches and produces a specific test plan covering happy path → edge cases → regression risks → HIPAA/compliance checks.
+
+If no feature is named: runs a full golden path review across all paths and lists the highest-risk untested scenarios.
+
+Returns a verdict: `PASS`, `NEEDS ATTENTION`, or `BLOCKED`. The human is responsible for executing the manual test steps — `qa` produces the plan, not the test results.
+
+**`.claude/commands/pre-commit.md`**
+Runs:
+
+1. `reviewer` — full audit of recently modified files
+2. `doc-writer` — verify `SESSION_TRANSITION.md` is current
+
+Returns either `✅ READY TO COMMIT` or `❌ FIX REQUIRED` with a list of blocking issues. Pure audit — no side effects. Used standalone, and also called internally by `/commit` and `/deploy`.
+
+#### Ship commands
+
+**`.claude/commands/commit.md`**
+
+Purpose: Get vetted code from the local machine to the staging branch, where Vercel auto-deploys it to `dev.<your-domain>` for review.
+
+Workflow:
+
+1. Run `/pre-commit` internally (`reviewer` audit + `doc-writer` SESSION_TRANSITION check).
+2. If `❌ FIX REQUIRED` → stop, show blockers, exit. Do not proceed.
+3. If `✅ READY TO COMMIT` → continue.
+4. Check current git branch. **Refuse to proceed if on `main`** — print an error explaining that production deploys go through `/deploy`, not `/commit`. If on `staging` or a feature branch, continue.
+5. Run `git status` and show the user the list of files about to be staged.
+6. Run `git add -A`.
+7. Generate a commit message from the doc-writer's session context, OR accept one passed as `$ARGUMENTS`.
+8. Show the proposed commit message to the user and require explicit confirmation before committing.
+9. On confirmation: run `git commit -m "<message>"` followed by `git push origin <current-branch>`.
+10. Return: commit SHA, branch name, and a note that Vercel will deploy to `dev.<your-domain>` shortly. Include the Vercel dashboard URL so the user can monitor the build.
+
+Guardrails:
+
+- Never commits directly to `main` — refuses outright with a pointer to `/deploy`.
+- Never force-pushes under any circumstance.
+- Stops cold if `/pre-commit` audit fails — does not allow override.
+- Never bypasses the confirmation step.
+
+**`.claude/commands/deploy.md`**
+
+Purpose: Promote tested code from `staging` to `main`, triggering a Vercel auto-deploy to `portal.<your-domain>`. This is the highest-risk command and the workflow reflects that.
+
+Pre-flight checks (all must pass before any state-changing action):
+
+1. Confirm the user is on the `staging` branch. If not, prompt them to switch and exit.
+2. Confirm `staging` is ahead of `main` (run `git log main..staging`). If there are no new commits, exit with a message — nothing to deploy.
+3. **Reverse drift check:** Run `git log staging..main`. If `main` has commits that `staging` doesn't, **block the deploy with no override.** Print a message instructing the user to back-merge `main` into `staging` first (`git checkout staging && git merge main && git push origin staging`), verify the build still works, then re-run `/deploy`. This prevents accidentally reverting hotfixes or rollback commits that are on `main` but not in `staging`.
+4. Read `KNOWN_ISSUES.md` and parse the Active Issues table.
+5. **P0 gate:** If any active P0 issues exist, display them and block the deploy. To override, the user must type the exact phrase: `override P0: <reason>`. Without this exact format, exit. If override is provided, capture the reason for logging.
+6. Run `/pre-commit` audit one final time as a last gate. If `❌ FIX REQUIRED`, exit.
+
+Confirmation step:
+
+7. Display a summary to the user containing:
+   - The list of commits being promoted
+   - The list of files changed
+   - Any P0 overrides captured in step 5
+   - The target environment: `main` → `portal.<your-domain>`
+8. Require explicit typed confirmation. The user must type `yes deploy to production` exactly. Anything else exits without action.
+
+Execution:
+
+9. `git checkout main`
+10. `git pull origin main`
+11. `git merge staging --no-ff`
+12. `git push origin main`
+13. Append a new entry to `DECISION_LOG.md` with: date/time, deploy SHA, list of commits shipped, owner, P0 override reason (if any).
+14. `git checkout staging`
+
+Guardrails:
+
+- Never force-pushes. Uses `--no-ff` merge to preserve history.
+- **Reverse drift check (step 3) has no override** — `main` ahead of `staging` is always a back-merge requirement.
+- Never proceeds past the P0 gate without a typed reason.
+- Never proceeds past the typed confirmation step without the exact phrase.
+- All deploys (including overrides) are logged to `DECISION_LOG.md` automatically.
+
+**`.claude/commands/rollback.md`**
+
+Purpose: Quickly revert the most recent production deploy when something is wrong. Scope is intentionally limited to the last deploy only.
+
+Workflow:
+
+1. Show the most recent merge commit on `main` (run `git log main --merges -1`).
+2. Display: the merge SHA, the commits that were included, and roughly when it shipped.
+3. Require explicit typed confirmation. User must type `yes rollback production` exactly.
+4. Prompt the user for a rollback reason (required, not optional).
+5. Execute the rollback:
+   - **Git revert:** `git checkout main` → `git pull origin main` → `git revert -m 1 <merge-sha> --no-edit` → `git push origin main`
+   - **Vercel Instant Rollback note:** Inform the user that for the fastest possible recovery, they can use Vercel's "Instant Rollback" feature in the dashboard.
+6. Append an entry to `DECISION_LOG.md` with the rollback details.
+7. Append a new P0 entry to `KNOWN_ISSUES.md` capturing whatever caused the rollback.
+8. **Back-merge prompt:** Prompt the user to back-merge `main` into `staging` so the next `/deploy` doesn't get blocked by the reverse-drift check. If user declines, warn that next `/deploy` will be blocked.
+9. Return user to `staging` with a summary.
+
+Guardrails:
+
+- Never force-pushes. Uses `git revert` to preserve full history.
+- Only ever rolls back the most recent merge.
+- Auto-logging to both `DECISION_LOG.md` and `KNOWN_ISSUES.md` is non-optional.
+- Back-merge prompt is non-optional, but the user can decline (with warning).
+
+**`.claude/commands/check-drift.md`**
+
+Purpose: Diagnostic, on-demand check for git drift between `staging` and `main`. **Report-only** — does not write to any doc, does not block any action.
+
+Workflow:
+
+1. `git fetch origin`
+2. Run `git log main..staging --oneline` and `git log staging..main --oneline`
+3. Build a report showing:
+   - Staging ahead of main (normal if WIP present)
+   - Main ahead of staging (unusual — needs back-merge)
+   - Severity indicator: ✅ in sync / ℹ️ staging-ahead only / ⚠️ main-ahead detected
+4. If main is ahead, suggest the back-merge command.
+
+Scope: git drift only. Does NOT check schema drift (Supabase migrations), env var drift (Vercel configs), or dependency drift (package versions). Those are separate concerns.
+
+Guardrails:
+
+- Read-only. Never modifies branches, never commits, never pushes.
+- Never blocks any subsequent action — purely diagnostic.
+- The actual gates against drift live in `/deploy` (which blocks on main-ahead).
+
+---
+
+### Typical end-to-end workflow
+
+A normal feature shipping from idea to production looks like this:
+
+```
+/session-start                    → briefing on where you left off + relevant backlog items
+/implement <feature>              → explorer → architect → database (if schema) → developer
+                                    → reviewer → qa → doc-writer
+[npm run dev — test on localhost] → fastest feedback loop, iterate until satisfied
+/commit                           → audits, then commits + pushes to staging
+                                    Vercel auto-deploys to dev.<your-domain>
+[manual QA on dev.<your-domain>]  → verify in real deploy environment with dev DB
+/deploy                           → branch + drift + P0 + audit gates → typed confirmation
+                                    → merges staging→main, Vercel deploys to prod
+                                    Logged to DECISION_LOG.md
+/session-end                      → updates docs, light drift check, generates summary
+```
+
+**Anytime callouts** (run whenever, doesn't interrupt the main flow):
+- `/add-idea <description>` — capture a new idea or feature request to the Backlog
+- `/ask-architect <question>` — quick design Q&A without running `/implement`
+- `/check-drift` — diagnostic git drift report between staging and main
+
+If something breaks in production: `/rollback` reverts the last merge, logs a P0 to `KNOWN_ISSUES.md`, and prompts a back-merge of `main` into `staging`. Fix forward in the next session.
+
+The three test environments, in order of speed and isolation:
+
+1. **`localhost:3000`** — fastest feedback loop. No deploy required. 90% of testing happens here.
+2. **`dev.<your-domain>`** — staging deploy after `/commit`. Catches what localhost can't (env vars, build failures, edge runtime quirks).
+3. **`portal.<your-domain>`** — production. Reached only via `/deploy`.
+
+---
+
+### Final command set summary
+
+| Group | Command | Purpose |
+|---|---|---|
+| Session | `/session-start` | Briefing on where you left off |
+| Session | `/session-end` | Wrap-up, light drift check, generate commit message |
+| Session | `/ask-architect` | Quick design Q&A — advisory only |
+| Session | `/add-idea` | Capture new ideas to the Backlog |
+| Build | `/implement` | Full feature implementation workflow |
+| Build | `/qa` | Manual test plan against golden paths |
+| Build | `/pre-commit` | Audit only — no side effects |
+| Ship | `/commit` | Audit + push to staging branch |
+| Ship | `/deploy` | Promote staging → main with full safety gates |
+| Ship | `/rollback` | Revert the last production deploy + back-merge prompt |
+| Ship | `/check-drift` | Diagnostic git drift report (read-only) |
+
+**11 commands, 7 agents, 11 docs.** Each command does one thing well. Each has clear guardrails. Together they cover the full lifecycle of an idea from "thought I just had" to "running in production" — and back, if something goes wrong.
+
+For day-to-day usage patterns, scenarios, and worked examples, see the companion **DAILY_PLAYBOOK.md**.
+
+---
+
+### After scaffolding is complete
+
+Once all files are created, confirm the structure and then ask me:
+
+1. What is the project name and one-sentence description?
+2. What problem does it solve and who is the user?
+3. What's the tech stack (or should we decide together)?
+4. Are there any compliance, security, or infrastructure constraints I should know about upfront?
+5. What are the critical user journeys (golden paths) that must never break? (Used to populate `QA_GOLDEN_PATHS.md` — if the project is simple, we can skip this and the `/qa` workflow.)
+
+Use my answers to populate `/docs/PRD.md`, `/docs/TECH_ARCHITECTURE.md`, and `/docs/QA_GOLDEN_PATHS.md` with real content, then update `/docs/DOCS_INDEX.md` and `/docs/README.md` accordingly.
