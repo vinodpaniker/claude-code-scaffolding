@@ -6,6 +6,10 @@
 
 ---
 
+> **Defaults used in examples below:** Vercel auto-deploy, `main` = production, `staging` = dev, Node + npm, subdomain-per-env URLs. If your project's `INFRASTRUCTURE.md` Deploy Config differs, mentally substitute your DEV_BRANCH, PROD_BRANCH, DEV_URL, PROD_URL, and LOCAL_DEV_COMMAND throughout. The patterns are the same; only the names change.
+
+---
+
 ## What this doc is
 
 A reference for the patterns that come up over and over. Not exhaustive — opinionated. The goal is that future-you, six months from now, can open this and remember how the system is supposed to work without re-deriving it.
@@ -26,13 +30,7 @@ It's organized so you can jump to the section you need:
 12. [A worked example](#a-worked-example)
 
 ---
-> **Defaults used in examples below:** Vercel auto-deploy, `main` = production, 
-> `staging` = dev, Node + npm, subdomain-per-env URLs. If your project's 
-> `INFRASTRUCTURE.md` Deploy Config differs, mentally substitute your DEV_BRANCH, 
-> PROD_BRANCH, DEV_URL, PROD_URL, and LOCAL_DEV_COMMAND throughout. The patterns 
-> are the same; only the names change.
 
----
 ## The mental model
 
 Eleven commands, three groups. Memorize the groups, look up the commands when you need them.
@@ -47,11 +45,11 @@ Within each group there's a typical order, but you don't always need every comma
 
 Three test environments, in order of speed and isolation:
 
-1. **`localhost`** — your fastest feedback loop. 90% of testing happens here.
-2. **`your dev URL (DEV_URL)`** — staging deploy. Catches build failures, env var issues, edge runtime quirks.
-3. **`your prod URL (PROD_URL)`** — production. Real users.
+1. **LOCAL_DEV_URL** (e.g., `localhost:3000`) — your fastest feedback loop. 90% of testing happens here.
+2. **DEV_URL** (e.g., `dev.<your-domain>`) — dev deploy. Catches build failures, env var issues, edge runtime quirks.
+3. **PROD_URL** (e.g., `portal.<your-domain>`) — production. Real users.
 
-The whole workflow is built around the principle that local is cheap, staging is medium, prod is expensive. Test cheaply first, escalate only when needed.
+The whole workflow is built around the principle that local is cheap, dev is medium, prod is expensive. Test cheaply first, escalate only when needed.
 
 ---
 
@@ -93,23 +91,25 @@ git checkout -b feat/<name>        → for anything bigger than a small fix
                                    → fix bugs, re-implement as needed
 
 /commit                            → audit + push to current branch
-                                   → Vercel auto-deploys to dev.<your-domain>
+                                   → DEV_DEPLOY_TRIGGER fires → DEV_URL updates
 
 [QA on dev.<your-domain>]          → verify in real deploy env
 
 /deploy                            → reverse-drift + P0 + audit + typed confirm
-                                   → merges staging → main
-                                   → Vercel auto-deploys to prod
+                                   → promotes per PROMOTION_MODEL
+                                   → PROD_DEPLOY_TRIGGER fires → PROD_URL updates
                                    → logged to DECISION_LOG
 
 /session-end                       → 90 sec: updates docs, drift check,
                                      session summary
 ```
 
-If you're working on a feature branch (recommended for anything non-trivial), merge it back to `staging` either via the GitHub UI or:
+If you're working on a feature branch (recommended for anything non-trivial), merge it back to DEV_BRANCH either via the GitHub UI or:
+
 ```bash
 git checkout staging && git merge feat/<name> && git push origin staging
 ```
+
 …before running `/deploy`.
 
 ---
@@ -121,11 +121,11 @@ Sometimes you only have 30 minutes. The minimum that still maintains forward mot
 ```
 /session-start                     → 30 sec: orient
 [do one focused thing]             → 25 minutes: implement, test
-/commit                            → push to staging
+/commit                            → push to DEV_BRANCH
 /session-end                       → 90 sec: capture what you did
 ```
 
-Skip `/deploy` entirely. Staging is fine — you can deploy in the next session, or batch up multiple commits and deploy once.
+Skip `/deploy` entirely. DEV_BRANCH is fine — you can deploy in the next session, or batch up multiple commits and deploy once.
 
 The discipline of running `/session-end` even on short sessions is what keeps SESSION_TRANSITION current. Without it, two short sessions of "I'll update the docs later" turns into "I forget what I was doing" three weeks from now.
 
@@ -208,7 +208,7 @@ End-of-week or whenever you have a clear 30 minutes:
 
 ```
 /session-start
-[implement tweak 1]   /commit       → pushed to staging
+[implement tweak 1]   /commit       → pushed to DEV_BRANCH
 [implement tweak 2]   /commit
 [implement tweak 3]   /commit
 [QA on dev]
@@ -222,17 +222,17 @@ Tiny tweaks usually don't need `/ask-architect` or `/qa`. Just implement, commit
 
 A hotfix is a bug that needs to ship immediately, not wait for the next session's normal flow. Two paths:
 
-**Path A — through staging (preferred):**
-1. Fix on `staging` branch
+**Path A — through DEV_BRANCH (preferred):**
+1. Fix on DEV_BRANCH
 2. Test on localhost
 3. `/commit`
-4. Verify on `dev.<your-domain>`
+4. Verify on DEV_URL
 5. `/deploy`
 
 This takes 15–30 minutes and is safest.
 
-**Path B — straight to main (rare, for true emergencies):**
-This intentionally isn't supported by `/commit` (which refuses to commit to main). For true emergencies where staging would slow you down, do it manually:
+**Path B — straight to PROD_BRANCH (rare, for true emergencies):**
+This intentionally isn't supported by `/commit` (which refuses to commit to PROD_BRANCH). For true emergencies where DEV_BRANCH would slow you down, do it manually:
 
 ```bash
 git checkout main
@@ -240,7 +240,7 @@ git pull origin main
 # fix the bug
 git add -A
 git commit -m "Hotfix: <description>"
-git push origin main                # Vercel deploys to prod
+git push origin main                # PROD_DEPLOY_TRIGGER fires
 git checkout staging
 git merge main                      # back-merge so /deploy isn't blocked next time
 git push origin staging
@@ -248,7 +248,7 @@ git push origin staging
 
 Then go to KNOWN_ISSUES.md and DECISION_LOG.md and document what happened, manually. The automated logging only happens through `/deploy`.
 
-This should be **rare** — most "emergencies" are 30 minutes through staging, not 5 minutes direct to prod. Use Path A unless you have a reason that survives saying out loud.
+This should be **rare** — most "emergencies" are 30 minutes through DEV_BRANCH, not 5 minutes direct to prod. Use Path A unless you have a reason that survives saying out loud.
 
 ### Ending a session mid-task
 
@@ -259,9 +259,9 @@ It happens. You ran out of time, the kid is crying, whatever. The work is half-d
                                    → "What's Next" makes the half-done state clear
 ```
 
-Don't `/commit` half-done work to staging unless it actually builds. Uncommitted WIP on your local machine is fine — that's what the local working tree is for. The next `/session-start` will pick it up.
+Don't `/commit` half-done work to DEV_BRANCH unless it actually builds. Uncommitted WIP on your local machine is fine — that's what the local working tree is for. The next `/session-start` will pick it up.
 
-If the WIP needs to live somewhere durable (you're switching machines, or it's a feature branch you want backed up), commit it to a feature branch — never to `staging` if it doesn't work.
+If the WIP needs to live somewhere durable (you're switching machines, or it's a feature branch you want backed up), commit it to a feature branch — never to DEV_BRANCH if it doesn't work.
 
 ---
 
@@ -289,22 +289,22 @@ If the WIP needs to live somewhere durable (you're switching machines, or it's a
 
 ### A useful mental anchor
 
-If your proposal is more than three sentences long, the architect probably needs more info even if it doesn't say so. Vague proposals get vague answers. "Add search" is too thin. "Add full-text search across client name, MRN, and diagnosis, returning client cards filtered by user's program access" is enough to evaluate.
+If your proposal is more than three sentences long, the architect probably needs more info even if it doesn't say so. Vague proposals get vague answers. "Add search" is too thin. "Add full-text search across order ID, customer name, and product SKU, returning order cards filtered by the user's tenant access" is enough to evaluate.
 
 ---
 
 ## Shipping
 
-The local → staging → prod flow is the spine of the workflow. Each step has a job.
+The local → dev → prod flow is the spine of the workflow. Each step has a job.
 
-### Local (`npm run dev`)
+### Local
 
-Where you live. Fast feedback, no risk. Iterate freely.
+Where you live. Fast feedback, no risk. Iterate freely with LOCAL_DEV_COMMAND.
 
 What this catches: most logic bugs, UI issues, obvious crashes.
 What this misses: env var problems, build failures, edge runtime issues, CDN/caching behavior.
 
-### Staging (`/commit` → `dev.<your-domain>`)
+### Dev (`/commit` → DEV_URL)
 
 Where you verify before production. Same code as prod, different DB and env.
 
@@ -313,14 +313,14 @@ What this misses: anything that depends on production data, real user behavior, 
 
 `/commit` runs the audit before pushing. If the audit fails, fix the issues — don't override.
 
-### Production (`/deploy` → `portal.<your-domain>`)
+### Production (`/deploy` → PROD_URL)
 
 Where users live. Highest risk. The friction in `/deploy` is intentional.
 
 The full gate sequence:
-1. Branch must be `staging`
-2. `staging` must be ahead of `main`
-3. `main` must NOT be ahead of `staging` (no override)
+1. Branch must be DEV_BRANCH (or PROD_BRANCH for `tag`/`trunk-only` PROMOTION_MODEL)
+2. There must be something to ship (DEV_BRANCH ahead of PROD_BRANCH, or unreleased commits since last tag)
+3. PROD_BRANCH must NOT be ahead of DEV_BRANCH (no override; merge model only)
 4. No active P0s in KNOWN_ISSUES (override requires typed reason)
 5. Final pre-commit audit must pass
 6. Typed confirmation: `yes deploy to production`
@@ -329,10 +329,10 @@ Each gate exists because someone (probably you) screwed something up that way at
 
 ### When you don't deploy
 
-Not every session ends with a `/deploy`. A perfectly normal session is local → `/commit` → done. Multiple commits to staging accumulate, then you `/deploy` once when you're ready.
+Not every session ends with a `/deploy`. A perfectly normal session is local → `/commit` → done. Multiple commits to DEV_BRANCH accumulate, then you `/deploy` once when you're ready.
 
 Common reasons not to deploy at session end:
-- Work-in-progress on staging that isn't ready for users
+- Work-in-progress on DEV_BRANCH that isn't ready for users
 - You want a teammate to review the dev environment first
 - It's late and you don't want to be on call for issues
 - The change touches a sensitive area and deserves a fresh-eyes review tomorrow
@@ -348,12 +348,16 @@ Something is broken in production. The fastest path back depends on what kind of
 ### "It's broken — I need to revert NOW"
 
 ```
-/rollback                          → reverts the last merge to main
-                                   → triggers Vercel rebuild from reverted state
-                                   → for fastest possible recovery, ALSO use
-                                     Vercel's "Instant Rollback" UI
+/rollback                          → reverts the last production change
+                                   → triggers your prod deploy mechanism
+                                     (per Deploy Config) from reverted state
+                                   → if your platform supports instant
+                                     rollback (Vercel, Netlify, Cloudflare
+                                     Pages, etc.), use that for fastest
+                                     possible recovery in addition to git
                                    → logs to DECISION_LOG and KNOWN_ISSUES (P0)
-                                   → prompts to back-merge main into staging
+                                   → prompts to back-merge PROD_BRANCH into
+                                     DEV_BRANCH (merge model only)
 ```
 
 Default to **yes** on the back-merge prompt. The cost is 10 seconds; the cost of declining is that next session's `/deploy` will be blocked until you remember.
@@ -364,7 +368,7 @@ If you can fix forward in under 15 minutes, do that instead of rolling back:
 
 ```
 [fix the bug]
-/commit                            → push fix to staging
+/commit                            → push fix to DEV_BRANCH
 [verify on dev]
 /deploy                            → ship the fix
 ```
@@ -389,9 +393,10 @@ This is intentional. The P0 isn't punishment — it's a forcing function so the 
 
 ```
 /check-drift                       → fetches remote refs
-                                   → reports staging-vs-main commit counts
-                                   → suggests back-merge if main is ahead
+                                   → reports DEV_BRANCH-vs-PROD_BRANCH counts
+                                   → suggests back-merge if PROD_BRANCH is ahead
                                    → READ-ONLY — never modifies anything
+                                   → no-op for tag/trunk-only PROMOTION_MODEL
 ```
 
 When to run it:
@@ -405,7 +410,7 @@ When to run it:
 What it doesn't check:
 
 - Schema drift between dev and prod databases
-- Environment variable parity between Vercel projects
+- Environment variable parity between your dev and prod deploys
 - Dependency version drift
 
 Those are separate concerns. For small teams, manual quarterly review is usually enough. If you need automated checking later, those can be added as separate commands.
@@ -438,17 +443,17 @@ Don't:
 
 **Use `/add-idea` for every micro-thought.** The Backlog is for things you might actually do. If everything goes in, nothing gets prioritized. Sticky notes exist for a reason.
 
-**Force-push.** Anywhere. The commands refuse to do this — don't bypass them manually. Force-pushing on `main` after a deploy is how you lose the audit trail.
+**Force-push.** Anywhere. The commands refuse to do this — don't bypass them manually. Force-pushing on PROD_BRANCH after a deploy is how you lose the audit trail.
 
-**Commit half-built work to `staging`.** Staging auto-deploys to `dev.<your-domain>`, which means broken commits = broken dev environment. Use feature branches for WIP.
+**Commit half-built work to DEV_BRANCH.** DEV_BRANCH auto-deploys to DEV_URL, which means broken commits = broken dev environment. Use feature branches for WIP.
 
-**Deploy without testing on `dev.<your-domain>` first.** "It worked on localhost" has been the famous last words of many deploys. Staging is fast — use it.
+**Deploy without testing on DEV_URL first.** "It worked on localhost" has been the famous last words of many deploys. Dev is fast — use it.
 
 **Skip `/session-end` because the session was short.** The 90 seconds it takes to update SESSION_TRANSITION saves you 20 minutes of context-rebuilding next session. Math.
 
 **Answer your own architecture questions when you could ask the architect.** It's free. It's grounded in the project's documented decisions. It catches blind spots. The cost of asking is 30 seconds; the cost of not asking can be hours of rework.
 
-**Pile up unscheduled commits on staging.** Staging is supposed to be a snapshot of "what's about to ship." If 15 commits accumulate without a deploy, you've lost the connection between staging and production. Deploy in batches that you can mentally hold.
+**Pile up unscheduled commits on DEV_BRANCH.** DEV_BRANCH is supposed to be a snapshot of "what's about to ship." If 15 commits accumulate without a deploy, you've lost the connection between dev and production. Deploy in batches that you can mentally hold.
 
 **Treat `/rollback` as failure.** It's a tool. Using it is a sign that the gates worked (the bug got caught) and the fallback worked (production recovered). The failure would be NOT having the tool when you need it.
 
@@ -469,24 +474,24 @@ claude
 /check-drift
 ```
 
-> Staging ahead of main (2 commits) — NORMAL.
-> Main ahead of staging — none.
+> DEV_BRANCH ahead of PROD_BRANCH (2 commits) — NORMAL.
+> PROD_BRANCH ahead of DEV_BRANCH — none.
 > ✅ In sync direction-wise. Two commits awaiting deploy.
 
 ```
 /session-start
 ```
 
-> **Last session:** Teammate added the bulk export feature for the team.
+> **Last session:** Teammate added the bulk order export feature for the analytics team.
 > **In progress:** Bulk export tested locally, awaiting review on dev.
 > **Blocked:** None.
-> **Active issues:** P1: Slow load on the dashboard view (KI-012)
-> **Recommended next action:** Verify bulk export on dev.<your-domain>, then deploy. After that, address KI-012.
-> **Recent backlog:** B-014 (Feature) — Add saved filters to the dashboard. Captured Friday from stakeholder feedback.
+> **Active issues:** P1: Slow load on the orders dashboard view (KI-012)
+> **Recommended next action:** Verify bulk export on DEV_URL, then deploy. After that, address KI-012.
+> **Recent backlog:** B-014 (Feature) — Add saved filters to the orders dashboard. Captured Friday from stakeholder feedback.
 
-OK, plan: verify the existing staging work first, deploy it, then look at the dashboard issue.
+OK, plan: verify the existing dev work first, deploy it, then look at the dashboard issue.
 
-You open `dev.<your-domain>`, click around, the bulk export works. Good.
+You open DEV_URL, click around, the bulk export works. Good.
 
 ```
 /deploy
@@ -497,7 +502,7 @@ You open `dev.<your-domain>`, click around, the bulk export works. Good.
 > Audit: ✅
 >
 > Commits to ship (2 total):
->   ab12345 Add bulk export endpoint
+>   ab12345 Add bulk order export endpoint
 >   cd67890 Add bulk export UI button
 >
 > Type `yes deploy to production` to proceed.
@@ -506,36 +511,36 @@ You open `dev.<your-domain>`, click around, the bulk export works. Good.
 yes deploy to production
 ```
 
-> ✅ DEPLOYED. SHA: ef34567. Vercel rebuilding now.
+> ✅ DEPLOYED. SHA: ef34567. Production deploy in progress.
 
-You check `portal.<your-domain>` in a minute. Bulk export works in production. Good.
+You check PROD_URL in a minute. Bulk export works in production. Good.
 
-Now to the dashboard issue. You open `KNOWN_ISSUES.md`, find KI-012. It says "Dashboard takes 4+ seconds to load on first paint." You think this might be an N+1 query in the census fetch.
+Now to the dashboard issue. You open `KNOWN_ISSUES.md`, find KI-012. It says "Orders dashboard takes 4+ seconds to load on first paint." You think this might be an N+1 query in the orders fetch.
 
 ```
-/ask-architect the slow dashboard load (KI-012) — I think it's an N+1 in the census query. Proposal: rewrite the query to use a single join instead of fetching beds and clients separately.
+/ask-architect the slow orders dashboard (KI-012) — I think it's an N+1 in the orders query. Proposal: rewrite the query to use a single join instead of fetching customers and line items separately.
 ```
 
 > **Verdict: GO** with one note.
 >
-> Approach is consistent with existing service-layer patterns (DEC-005). The single-query approach will need to preserve the explicit `Client.status` field (don't derive from join state).
+> Approach is consistent with existing service-layer patterns (DEC-005). The single-query approach will need to preserve the explicit `Order.status` field (don't derive from join state).
 
 ```
-git checkout -b fix/dashboard-n1
-/implement fix the N+1 query in the census fetch — rewrite as a single join while preserving Client.status as the source of truth
+git checkout -b fix/orders-n1
+/implement fix the N+1 query in the orders fetch — rewrite as a single join while preserving Order.status as the source of truth
 ```
 
-The implement chain runs. Architect: GO. Database agent: confirms the query change is fine. Developer: rewrites the query in `lib/census.ts`. Reviewer: clean, no P0/P1. QA: produces a test plan covering the census view and confirming the auth-expiry highlighting still works.
+The implement chain runs. Architect: GO. Database agent: confirms the query change is fine. Developer: rewrites the query in `lib/orders.ts`. Reviewer: clean, no P0/P1. QA: produces a test plan covering the orders dashboard and confirming the stale-order highlighting still works.
 
-You run `npm run dev`, click around the dashboard. It loads fast now. Auth expiry coloring still works. Good.
+You run LOCAL_DEV_COMMAND, click around the dashboard. It loads fast now. Stale-order highlighting still works. Good.
 
 ```
 /commit
 ```
 
-> Audit: ✅. Branch: fix/dashboard-n1.
+> Audit: ✅. Branch: fix/orders-n1.
 >
-> Proposed commit: "Fix N+1 in census query. KI-012 resolved. Single-query approach preserves Client.status."
+> Proposed commit: "Fix N+1 in orders query. KI-012 resolved. Single-query approach preserves Order.status."
 >
 > Confirm? (yes/no/edit)
 
@@ -545,7 +550,7 @@ yes
 
 > ✅ Committed and pushed.
 
-You merge to staging via the GitHub UI, then verify on `dev.<your-domain>`. The dashboard is fast.
+You merge to DEV_BRANCH via the GitHub UI, then verify on DEV_URL. The dashboard is fast.
 
 ```
 /deploy
@@ -564,7 +569,7 @@ You also want to update KI-012 to Resolved. The `doc-writer` agent will handle t
 > **No new lessons or decisions this session.**
 > **Implementation plan:** 1 task marked done.
 > **Drift check:** ✅ in sync.
-> **Summary:** Deployed teammate's bulk export feature. Fixed dashboard N+1 (KI-012). Production stable.
+> **Summary:** Deployed teammate's bulk export feature. Fixed orders dashboard N+1 (KI-012). Production stable.
 
 You close the laptop. The session took about 90 minutes. You shipped two distinct improvements to production with full audit trail. The next session will start with SESSION_TRANSITION reflecting today's work, and B-014 (saved filters) is still in the backlog waiting for when you decide to tackle it.
 
