@@ -26,7 +26,13 @@ It's organized so you can jump to the section you need:
 12. [A worked example](#a-worked-example)
 
 ---
+> **Defaults used in examples below:** Vercel auto-deploy, `main` = production, 
+> `staging` = dev, Node + npm, subdomain-per-env URLs. If your project's 
+> `INFRASTRUCTURE.md` Deploy Config differs, mentally substitute your DEV_BRANCH, 
+> PROD_BRANCH, DEV_URL, PROD_URL, and LOCAL_DEV_COMMAND throughout. The patterns 
+> are the same; only the names change.
 
+---
 ## The mental model
 
 Eleven commands, three groups. Memorize the groups, look up the commands when you need them.
@@ -42,8 +48,8 @@ Within each group there's a typical order, but you don't always need every comma
 Three test environments, in order of speed and isolation:
 
 1. **`localhost`** — your fastest feedback loop. 90% of testing happens here.
-2. **`dev.<your-domain>`** — staging deploy. Catches build failures, env var issues, edge runtime quirks.
-3. **`portal.<your-domain>`** — production. Real users.
+2. **`your dev URL (DEV_URL)`** — staging deploy. Catches build failures, env var issues, edge runtime quirks.
+3. **`your prod URL (PROD_URL)`** — production. Real users.
 
 The whole workflow is built around the principle that local is cheap, staging is medium, prod is expensive. Test cheaply first, escalate only when needed.
 
