@@ -5,7 +5,29 @@
 > **Companion doc:** Once the project is set up, see `DAILY_PLAYBOOK.md` for guidance on day-to-day use of the commands and agents.
 
 ---
+## Assumptions & adaptations
 
+This scaffold bakes in a specific stack and team shape. Read the table 
+before scaffolding — if any row doesn't describe your project, follow 
+the swap-out guidance.
+
+| Assumption | Default | If you don't share this |
+| --- | --- | --- |
+| **Deploy mechanism** | Vercel auto-deploys on git push | Replace the deploy logic in `/commit` and `/deploy` with your trigger (GitHub Actions, manual CI, `kubectl apply`, Fly machines, etc.). Keep all the gate logic — only the "now ship it" step changes. |
+| **Branch model** | `main` = production, `staging` = dev environment | Rename throughout. For trunk-based: collapse `staging` and ship via tags or release workflows. For GitFlow: substitute `develop` for `staging` and add a `release/*` step to `/deploy`. |
+| **Runtime / package manager** | Node + npm (`npm run dev`, `localhost:3000`) | Substitute your local dev command and port (`go run ./cmd/server`, `cargo run`, `python manage.py runserver`, `bin/rails s`) in DAILY_PLAYBOOK and command files. |
+| **Hostnames** | `dev.<your-domain>`, `portal.<your-domain>` | Replace with your actual environment URLs. If you don't use subdomain-per-environment (e.g., separate Vercel projects, Render services), update playbook references accordingly. |
+| **Compliance posture** | Healthcare-adjacent (HIPAA / PHI mentions) | If you don't handle PHI, delete the HIPAA column from `QA_GOLDEN_PATHS.md` and remove the PHI rule from the `database` agent. If you have a different posture (PCI, SOC 2, GDPR, FedRAMP), substitute the relevant compliance language. |
+| **Database** | Relational with versioned SQL migrations | If using NoSQL, a schemaless store, or ORM-managed schema, rewrite the `database` agent's rules. "Never DROP columns" is Postgres-shaped guidance. |
+| **Repo shape** | Single deployable | For monorepos with multiple deploy targets, add a target argument to `/commit` and `/deploy` (e.g., `/deploy api`, `/deploy web`), or maintain one command per target. |
+
+For most adaptations the change is in two or three files: the relevant 
+agent (`database.md`), the ship commands (`commit.md`, `deploy.md`, 
+`rollback.md`), and the playbook examples. The doc set, the agent role 
+split, the gate logic, and the session loop are stack-agnostic and 
+don't need changes.
+
+---
 ## PROMPT — PASTE THIS INTO CLAUDE CODE
 
 Please scaffold this project with the full standard structure I use for every project. This means three things:
@@ -34,8 +56,21 @@ Sections: Phase overview table, then one section per phase with: Goals, Tasks (c
 **`/docs/TECH_ARCHITECTURE.md`**
 Sections: System Diagram (text/ASCII), Tech Stack, Component Structure, Data Flow, Key Architectural Decisions, Security & Compliance Considerations, Known Constraints
 
-**`/docs/INFRASTRUCTURE.md`**
-Sections: Local Dev Setup (step by step), Environment Variables, Services & Ports, Production Environment, Deployment Process, Backup & Recovery, Branch Model (`main` = production, `staging` = dev environment, feature branches merge to `staging`)
+**`/docs/INFRASTRUCTURE.md`** Sections: Local Dev Setup (step by step), 
+Environment Variables, Services & Ports, **Deploy Config** (see below), 
+Production Environment, Deployment Process, Backup & Recovery.
+
+The Deploy Config section is the single source of truth for branch 
+names, URLs, and deploy mechanics — the `/commit`, `/deploy`, 
+`/rollback`, and `/check-drift` commands all read from it. Filled in 
+once at scaffold time. Required keys:
+
+- DEV_BRANCH, PROD_BRANCH
+- DEV_URL, PROD_URL
+- LOCAL_DEV_COMMAND, LOCAL_DEV_URL
+- DEV_DEPLOY_TRIGGER, DEV_DEPLOY_DETAILS
+- PROD_DEPLOY_TRIGGER, PROD_DEPLOY_DETAILS
+- PROMOTION_MODEL  (merge | tag | trunk-only)
 
 **`/docs/QA_GOLDEN_PATHS.md`**
 Defines the critical user journeys this project must protect — the workflows that, if broken, mean the product is broken regardless of what passing tests say. Each golden path is numbered (GP-1, GP-2, ...) and gets its own section with: Path Name, User Role, Trigger, Step-by-Step Flow, Success Criteria, Common Failure Modes, HIPAA / Compliance Considerations (if applicable). The `/qa` command tests features against these golden paths and produces manual test plans. For simple projects this might be one or two paths; for clinical / regulated software it might be a dozen. Note: this doc is optional for very simple projects — `/qa` and `qa` agent can be skipped if golden paths aren't formalized.
@@ -136,7 +171,7 @@ Each file must have valid YAML frontmatter (`name`, `description`, `tools`) foll
 
 The command set is organized in three groups: **session management** (`session-start`, `session-end`, `ask-architect`, `add-idea`), **build** (`implement`, `qa`, `pre-commit`), and **ship** (`commit`, `deploy`, `rollback`, `check-drift`).
 
-**Branch model assumed throughout:** `main` = production (auto-deploys to `portal.<your-domain>` via Vercel), `staging` = dev environment (auto-deploys to `dev.<your-domain>` via Vercel). Feature branches merge into `staging`. The commands rely on Vercel's git integration — they push to git and let Vercel handle the deploy. No Vercel CLI or API tokens required.
+**Branch model and deploy mechanics:** All ship commands read from the Deploy Config section of `INFRASTRUCTURE.md` (DEV_BRANCH, PROD_BRANCH, deploy triggers, etc.). Commands are stack-agnostic — they push to git and hand off to whatever mechanism the project configured. See INFRASTRUCTURE.md for the values.
 
 #### Session management commands
 
